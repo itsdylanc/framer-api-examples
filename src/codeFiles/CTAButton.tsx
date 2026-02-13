@@ -1,0 +1,45 @@
+// Get Started: https://www.framer.com/developers
+// Edit in GitHub
+
+import { addPropertyControls, ControlType } from 'framer';
+import { motion } from 'framer-motion';
+
+/**
+ * @framerSupportedLayoutWidth auto
+ * @framerSupportedLayoutHeight auto
+ */
+
+export default function CTAButton(props) {
+    const { tint, text } = props;
+
+    return (
+        <motion.div
+            style={{
+                width: '100%',
+                height: 36,
+                borderRadius: 25,
+                backgroundColor: tint,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingRight: 12,
+                paddingLeft: 12
+            }}
+        >
+            {text}
+        </motion.div>
+    );
+}
+
+addPropertyControls(CTAButton, {
+    tint: {
+        title: 'Tint',
+        type: ControlType.Color,
+        defaultValue: '#09F'
+    },
+    text: {
+        title: 'Text',
+        type: ControlType.String,
+        defaultValue: 'Button Text'
+    }
+});
