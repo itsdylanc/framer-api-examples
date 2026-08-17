@@ -12,9 +12,57 @@ using framer = await connect(projectUrl);
 
 const codefilesDir = './src/codeFiles';
 
-/** Normalize for comparison with Framer's code file names (e.g. leading slash or path sep) */
-function normalizeCodeFileName(name: string): string {
-    return name.replace(/^\/+|\/+$/g, '').replace(/\\/g, '/');
+function normalizeCodeFilePath(value: string): string {
+    return value.replace(/^\/+|\/+$/g, '').replace(/\\/g, '/');
+}
+
+function stripCodeExt(value: string): string {
+    return value.replace(/\.(tsx|ts)$/, '');
+}
+
+/** `components/CTAButton_2.tsx` → `{ dir: "components", stem: "CTAButton" }` */
+function pathStem(value: string): { dir: string; stem: string } {
+    const noExt = stripCodeExt(normalizeCodeFilePath(value));
+    const sep = noExt.lastIndexOf('/');
+    const base = sep === -1 ? noExt : noExt.slice(sep + 1);
+    return {
+        dir: sep === -1 ? '' : noExt.slice(0, sep),
+        stem: base.replace(/_\d+$/, '')
+    };
+}
+
+function suffixNumber(value: string): number {
+    const base = stripCodeExt(normalizeCodeFilePath(value)).split('/').pop() ?? '';
+    const match = base.match(/_(\d+)$/);
+    return match ? Number(match[1]) : 0;
+}
+
+function findExistingFile<T extends { name: string; path: string }>(
+    existingFiles: readonly T[],
+    localPath: string
+): T | undefined {
+    const local = normalizeCodeFilePath(localPath);
+    const localNoExt = stripCodeExt(local);
+    const localParts = pathStem(local);
+
+    const exact = existingFiles.find((f) => {
+        const p = normalizeCodeFilePath(f.path);
+        const n = normalizeCodeFilePath(f.name);
+        return p === local || n === local || stripCodeExt(p) === localNoExt || stripCodeExt(n) === localNoExt;
+    });
+    if (exact) return exact;
+
+    const sameDir = existingFiles.filter((f) => {
+        const parts = pathStem(f.path || f.name);
+        return parts.dir === localParts.dir && parts.stem === localParts.stem;
+    });
+    if (sameDir.length > 0) {
+        return [...sameDir].sort((a, b) => suffixNumber(a.path) - suffixNumber(b.path))[0];
+    }
+
+    const sameStem = existingFiles.filter((f) => pathStem(f.path || f.name).stem === localParts.stem);
+    if (sameStem.length === 0) return undefined;
+    return [...sameStem].sort((a, b) => suffixNumber(a.path || a.name) - suffixNumber(b.path || b.name))[0];
 }
 
 /** get all .ts/.tsx files relative to codefilesDir */
@@ -36,32 +84,22 @@ function getCodeFilePaths(dir: string, baseDir: string = dir): string[] {
 const files = getCodeFilePaths(codefilesDir);
 
 try {
-    const existingFiles = await framer.getCodeFiles();
+    const existingFiles = [...(await framer.getCodeFiles())];
     for (const file of files) {
         const content = fs.readFileSync(path.join(codefilesDir, file), 'utf8');
-        const fileName = file.replace(/\.(tsx|ts)$/, '');
-
-        const normalizedFile = normalizeCodeFileName(file);
-        const normalizedFileName = normalizeCodeFileName(fileName);
-        const ourBasename = path.basename(fileName);
-        const existingFile = existingFiles.find((f) => {
-            const n = normalizeCodeFileName(f.name);
-            const nNoExt = n.replace(/\.(tsx|ts)$/, '');
-            const theirBasename = path.basename(nNoExt);
-            return (
-                n === normalizedFile ||
-                n === normalizedFileName ||
-                nNoExt === normalizedFileName ||
-                (theirBasename === ourBasename && (n.includes('/') || normalizedFileName.includes('/')))
-            );
-        });
+        const localPath = normalizeCodeFilePath(file);
+        const existingFile = findExistingFile(existingFiles, localPath);
 
         if (existingFile) {
-            console.log(`${fileName} found, updating...`);
+            console.log(`${localPath} found as ${existingFile.path}, updating...`);
             await existingFile.setFileContent(content);
         } else {
-            console.log(`${fileName} not found, creating...`);
-            await framer.createCodeFile(fileName, content);
+            console.log(`${localPath} not found, creating...`);
+            // Include the extension. A path like "components/CTAButton" (no ext)
+            // is unique-ified to components/CTAButton_1.tsx.
+            const created = await framer.createCodeFile(localPath, content);
+            console.log(`  created ${created.path}`);
+            existingFiles.push(created);
         }
     }
 } catch (error) {
