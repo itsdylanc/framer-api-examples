@@ -22,6 +22,7 @@ async function findOrCreateCollection(name: string) {
 }
 
 async function setupFields(collection: ManagedCollection) {
+    console.log('Setting up fields...');
     await collection.setFields([
         { type: 'string', name: 'Name', id: 'name' },
         { type: 'string', name: 'Title', id: 'title' },
@@ -36,24 +37,33 @@ async function setupFields(collection: ManagedCollection) {
     console.log(`Set ${fields.length} fields`);
 }
 
-async function populateCollection(collection: ManagedCollection) {
-    const response = await fetch('https://randomuser.me/api/?results=5');
-    const data = await response.json();
-    const users = data.results;
+interface RandomUser {
+    name: { title: string; first: string; last: string };
+    email: string;
+    phone: string;
+    login: { uuid: string };
+    dob: { date: string; age: number };
+    picture: { large: string };
+}
 
-    const usersData = users.map((user: any, index: number) => ({
-        id: `user-${index + 1}`,
-        slug: `${user.name.first}-${user.name.last}`,
-        draft: false,
+async function populateCollection(collection: ManagedCollection) {
+    console.log('Populating collection...');
+    const response = await fetch('https://randomuser.me/api/?results=5');
+    const { results } = (await response.json()) as { results: RandomUser[] };
+
+    const usersData = results.map((user) => ({
+        id: user.login.uuid,
+        slug: user.login.uuid,
+        draft: Math.random() > 0.5,
         fieldData: {
-            name: { type: 'string', value: user.name.first + ' ' + user.name.last },
+            name: { type: 'string', value: `${user.name.first} ${user.name.last}` },
             title: { type: 'string', value: user.name.title },
             email: { type: 'string', value: user.email },
             phone: { type: 'string', value: user.phone },
             dob: { type: 'date', value: user.dob.date },
             age: { type: 'number', value: user.dob.age },
-            profilePicture: { type: 'image', value: user.picture.large }
-        }
+            profilePicture: { type: 'image', value: user.picture.large },
+        },
     }));
 
     await collection.addItems(JSON.parse(JSON.stringify(usersData)));

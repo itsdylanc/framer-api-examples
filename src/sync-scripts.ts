@@ -10,25 +10,58 @@ if (!projectUrl) {
 
 using framer = await connect(projectUrl);
 
-const codefilesDir = './src/codefiles';
-const files = fs.readdirSync(codefilesDir);
+const codefilesDir = './src/codeFiles';
+
+/** Normalize for comparison with Framer's code file names (e.g. leading slash or path sep) */
+function normalizeCodeFileName(name: string): string {
+    return name.replace(/^\/+|\/+$/g, '').replace(/\\/g, '/');
+}
+
+/** get all .ts/.tsx files relative to codefilesDir */
+function getCodeFilePaths(dir: string, baseDir: string = dir): string[] {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const paths: string[] = [];
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(baseDir, fullPath);
+        if (entry.isDirectory()) {
+            paths.push(...getCodeFilePaths(fullPath, baseDir));
+        } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts')) {
+            paths.push(relativePath);
+        }
+    }
+    return paths;
+}
+
+const files = getCodeFilePaths(codefilesDir);
 
 try {
+    const existingFiles = await framer.getCodeFiles();
     for (const file of files) {
-        if (file.endsWith('.tsx') || file.endsWith('.ts')) {
-            const content = fs.readFileSync(path.join(codefilesDir, file), 'utf8');
-            const fileName = file.replace('.tsx', '').replace('.ts', '');
+        const content = fs.readFileSync(path.join(codefilesDir, file), 'utf8');
+        const fileName = file.replace(/\.(tsx|ts)$/, '');
 
-            const existingFiles = await framer.getCodeFiles();
-            const existingFile = existingFiles.find((f) => f.name === file);
+        const normalizedFile = normalizeCodeFileName(file);
+        const normalizedFileName = normalizeCodeFileName(fileName);
+        const ourBasename = path.basename(fileName);
+        const existingFile = existingFiles.find((f) => {
+            const n = normalizeCodeFileName(f.name);
+            const nNoExt = n.replace(/\.(tsx|ts)$/, '');
+            const theirBasename = path.basename(nNoExt);
+            return (
+                n === normalizedFile ||
+                n === normalizedFileName ||
+                nNoExt === normalizedFileName ||
+                (theirBasename === ourBasename && (n.includes('/') || normalizedFileName.includes('/')))
+            );
+        });
 
-            if (existingFile) {
-                console.log(`${fileName} file found, updating...`);
-                await existingFile.setFileContent(content);
-            } else {
-                console.log(`${fileName} file not found, creating...`);
-                await framer.createCodeFile(fileName, content);
-            }
+        if (existingFile) {
+            console.log(`${fileName} found, updating...`);
+            await existingFile.setFileContent(content);
+        } else {
+            console.log(`${fileName} not found, creating...`);
+            await framer.createCodeFile(fileName, content);
         }
     }
 } catch (error) {
